@@ -829,7 +829,12 @@ impl InboundRequest {
                 info!("File name: {}", file.name());
 
                 let mut dest = get_download_dir();
-                dest.push(file.name());
+                let rel_path = file.parent_folder
+                    .as_ref()
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_default()
+                    .join(file.name());
+                dest.push(&rel_path);
 
                 info!("Destination: {:?}", dest);
                 if dest.exists() {
@@ -857,7 +862,7 @@ impl InboundRequest {
                 };
                 total_bytes += info.total_size as u64;
                 self.state.transferred_files.insert(file.payload_id(), info);
-                files_name.push(file.name().to_owned());
+                files_name.push(rel_path.display().to_string());
             }
 
             let metadata = TransferMetadata {
@@ -1004,6 +1009,12 @@ impl InboundRequest {
         for id in ids {
             let mfi = self.state.transferred_files.get_mut(&id).unwrap();
 
+            if let Some(parent) = mfi.file_url.parent() {
+                if !parent.exists() {
+                    std::fs::create_dir_all(parent)?;
+               }
+            }
+
             let file = File::create(&mfi.file_url)?;
             info!("Created file: {:?}", &file);
             mfi.file = Some(file);
@@ -1014,7 +1025,9 @@ impl InboundRequest {
             v1: Some(sharing_nearby::V1Frame {
                 r#type: Some(sharing_nearby::v1_frame::FrameType::Response.into()),
                 connection_response: Some(sharing_nearby::ConnectionResponseFrame {
+                    attachment_details: Default::default(),
                     status: Some(sharing_nearby::connection_response_frame::Status::Accept.into()),
+                    stream_metadata: Default::default(),
                 }),
                 ..Default::default()
             }),
@@ -1048,7 +1061,9 @@ impl InboundRequest {
             v1: Some(sharing_nearby::V1Frame {
                 r#type: Some(sharing_nearby::v1_frame::FrameType::Response.into()),
                 connection_response: Some(sharing_nearby::ConnectionResponseFrame {
+                    attachment_details: Default::default(),
                     status: Some(sreason.into()),
+                    stream_metadata: Default::default(),
                 }),
                 ..Default::default()
             }),
