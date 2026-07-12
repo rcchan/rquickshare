@@ -853,6 +853,35 @@ impl InboundRequest {
                     info!("New destination: {:?}", dest);
                 }
 
+                // Validate path to prevent traversal outside the user-selected writable path.
+                let path_valid = match dest.strip_prefix(get_download_dir()) {
+                    Ok(remaining_path) => {
+                        let has_components = remaining_path.components().count() >= 1;
+                        if !has_components {
+                            error!("destination path {:?} failed validation: no path components beyond download dir", dest);
+                        }
+                        let all_normal = remaining_path
+                            .components()
+                            .all(|c| matches!(c, std::path::Component::Normal(_)));
+                        if !all_normal {
+                            error!("destination path {:?} failed validation: invalid path components found", dest);
+                        }
+                        has_components && all_normal
+                    }
+                    Err(_) => {
+                        error!("destination path {:?} failed validation: path is outside of download dir", dest);
+                        false
+                    }
+                };
+                if !path_valid {
+                    info!("rejecting inbound file due to invalid path {:?}", dest);
+                    self.reject_transfer(Some(
+                        sharing_nearby::connection_response_frame::Status::Reject,
+                    ))
+                    .await?;
+                    return Err(anyhow!("destination path {:?} failed validation", dest));
+                }
+
                 let info = InternalFileInfo {
                     payload_id: file.payload_id(),
                     file_url: dest,
